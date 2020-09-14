@@ -16,7 +16,7 @@ from torchrl.experiments import IRLTrainer
 from torchrl.utils.misc import load_latest_experts
 
 
-@wrap_experiment()
+@wrap_experiment(log_dir='data/gail_pendulum_v0', snapshot_mode='all')
 def main(ctxt=None, seed=0):
     env = GymEnv('InvertedPendulum-v2')
 
@@ -42,7 +42,8 @@ def main(ctxt=None, seed=0):
                   env,
                   irl_model,
                   baseline,
-                  sampler_cls=MultiprocessingSampler)
+                  sampler_cls=MultiprocessingSampler,
+                  zero_environment_reward=True)
     trainer.train(n_epochs=1, batch_size=args.batch_size)
 
 

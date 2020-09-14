@@ -205,7 +205,7 @@ class IRLTrainer(Trainer):
         if self.no_reward:
             total_rew = 0.
             for path in paths:
-                tot_rew += np.sum(path['rewards'])
+                total_rew += np.sum(path['rewards'])
                 path['rewards'] *= 0
             tabular.record('OriginalTaskAverageReturn',
                            total_rew / float(len(paths)))
@@ -283,6 +283,10 @@ class IRLTrainer(Trainer):
                 # train policy
                 self._algo.train(self)
                 logger.log('Logging diagnostics...')
+                logger.log('Time %.2f s' % (time.time() - self._start_time))
+                logger.log('EpochTime %.2f s' %
+                           (time.time() - self._itr_start_time))
+                tabular.record('TotalEnvSteps', self._stats.total_env_steps)
                 self.log_diagnostics(paths)
                 logger.log('Optimizing policy...')
 
@@ -291,7 +295,8 @@ class IRLTrainer(Trainer):
                 logger.log('Saved')
                 tabular.record('Time', time.time() - self._start_time)
                 tabular.record('ItrTime', time.time() - self._itr_start_time)
-                logger.log(tabular)
+                logger.dump_all(self.step_itr)
+                tabular.clear()
 
         self._shutdown_worker()
 
@@ -317,10 +322,10 @@ class IRLTrainer(Trainer):
 
         self.save(1)
 
-        if self.enable_logging:
-            self.log_diagnostics(self.pause_for_plot)
-            logger.dump_all(self.step_itr)
-            tabular.clear()
+        # if self.enable_logging:
+        #     self.log_diagnostics(self.pause_for_plot)
+        #     logger.dump_all(self.step_itr)
+        #     tabular.clear()
 
     def get_env_copy(self):
         """Get a copy of the environment.

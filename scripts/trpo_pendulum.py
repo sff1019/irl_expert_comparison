@@ -16,7 +16,10 @@ from torchrl.experiments.trainer import Trainer
 def main(ctxt=None, seed=0):
     env = GymEnv('Pendulum-v0')
 
-    policy = GaussianMLPPolicy(env.spec, hidden_sizes=[32, 32])
+    policy = GaussianMLPPolicy(env.spec,
+                               hidden_sizes=[32, 32],
+                               hidden_nonlinearity=torch.tanh,
+                               output_nonlinearity=None)
 
     value_function = GaussianMLPValueFunction(env_spec=env.spec,
                                               hidden_sizes=(32, 32),

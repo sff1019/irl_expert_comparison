@@ -1,4 +1,4 @@
 .python-version
 data/
 *.egg-info/
-*_results.txt
+*_results*.txt

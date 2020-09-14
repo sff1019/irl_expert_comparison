@@ -18,7 +18,6 @@ from torchrl.utils import tensor_utils
 
 
 class ExperimentStats:
-    # pylint: disable=too-few-public-methods
     """Statistics of a experiment.
 
     Args:
@@ -36,7 +35,6 @@ class ExperimentStats:
 
 
 class SetupArgs:
-    # pylint: disable=too-few-public-methods
     """Arguments to setup a trainer.
 
     Args:
@@ -52,18 +50,6 @@ class SetupArgs:
 
 
 class TrainArgs:
-    # pylint: disable=too-few-public-methods
-    """Arguments to call train() or resume().
-
-    Args:
-        n_epochs (int): Number of epochs.
-        batch_size (int): Number of environment steps in one batch.
-        plot (bool): Visualize an episode of the policy after after each epoch.
-        store_episodes (bool): Save episodes in snapshot.
-        pause_for_plot (bool): Pause for plot.
-        start_epoch (int): The starting epoch. Used for resume().
-
-    """
     def __init__(self, n_epochs, batch_size, plot, store_episodes,
                  pause_for_plot, start_epoch):
         self.n_epochs = n_epochs
@@ -75,43 +61,6 @@ class TrainArgs:
 
 
 class Trainer:
-    """Base class of trainer.
-
-    Use trainer.setup(algo, env) to setup algorithm and environment for trainer
-    and trainer.train() to start training.
-
-    Args:
-        snapshot_config (garage.experiment.SnapshotConfig): The snapshot
-            configuration used by Trainer to create the snapshotter.
-            If None, it will create one with default settings.
-
-    Note:
-        For the use of any TensorFlow environments, policies and algorithms,
-        please use TFTrainer().
-
-    Examples:
-        | # to train
-        | trainer = Trainer()
-        | env = Env(...)
-        | policy = Policy(...)
-        | algo = Algo(
-        |         env=env,
-        |         policy=policy,
-        |         ...)
-        | trainer.setup(algo, env)
-        | trainer.train(n_epochs=100, batch_size=4000)
-
-        | # to resume immediately.
-        | trainer = Trainer()
-        | trainer.restore(resume_from_dir)
-        | trainer.resume()
-
-        | # to resume with modified training arguments.
-        | trainer = Trainer()
-        | trainer.restore(resume_from_dir)
-        | trainer.resume(n_epochs=20)
-
-    """
     def __init__(self, snapshot_config):
         self._snapshotter = Snapshotter(snapshot_config.snapshot_dir,
                                         snapshot_config.snapshot_mode,
@@ -636,11 +585,3 @@ class Trainer:
 
 class NotSetupError(Exception):
     """Raise when an experiment is about to run without setup."""
-
-
-class IRLTrainer(Trainer):
-    def __init__(self):
-        super(IRLTrainer, self).__init__()
-
-    def optimize_policy(self, itr, samples_data):
-        raise NotImplementedError

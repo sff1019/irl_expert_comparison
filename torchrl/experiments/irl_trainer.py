@@ -4,19 +4,22 @@ import time
 
 import cloudpickle
 from dowel import logger, tabular
-import psutil
-
-# This is avoiding a circular import
 from garage.experiment.deterministic import get_seed, set_seed
 from garage.experiment.snapshotter import Snapshotter
 from garage.sampler.default_worker import DefaultWorker
 from garage.sampler.worker_factory import WorkerFactory
+import numpy as np
+import psutil
 
-# pylint: disable=no-name-in-module
+from torchrl.experiments.trainer import Trainer
+from torchrl.utils import special, tensor_utils
+
+
+def center_advantages(advantages):
+    return (advantages - np.mean(advantages)) / (advantages.std() + 1e-8)
 
 
 class ExperimentStats:
-    # pylint: disable=too-few-public-methods
     """Statistics of a experiment.
 
     Args:
@@ -49,32 +52,9 @@ class SetupArgs:
         self.seed = seed
 
 
-class TrainArgs:
-    # pylint: disable=too-few-public-methods
-    """Arguments to call train() or resume().
-
-    Args:
-        n_epochs (int): Number of epochs.
-        batch_size (int): Number of environment steps in one batch.
-        plot (bool): Visualize an episode of the policy after after each epoch.
-        store_episodes (bool): Save episodes in snapshot.
-        pause_for_plot (bool): Pause for plot.
-        start_epoch (int): The starting epoch. Used for resume().
-
-    """
-    def __init__(self, n_epochs, batch_size, plot, store_episodes,
-                 pause_for_plot, start_epoch):
-        self.n_epochs = n_epochs
-        self.batch_size = batch_size
-        self.plot = plot
-        self.store_episodes = store_episodes
-        self.pause_for_plot = pause_for_plot
-        self.start_epoch = start_epoch
-
-
 class IRLTrainer(Trainer):
     def __init__(self, snapshot_config):
-        super(IRLTrainer, self).__init__()
+        super(IRLTrainer, self).__init__(snapshot_config)
         self._snapshotter = Snapshotter(snapshot_config.snapshot_dir,
                                         snapshot_config.snapshot_mode,
                                         snapshot_config.snapshot_gap)
@@ -106,21 +86,38 @@ class IRLTrainer(Trainer):
         self._worker_class = None
         self._worker_args = None
 
-    @override
     def setup(self,
               algo,
               env,
               irl,
+              baseline,
+              n_itr=200,
+              start_itr=0,
               sampler_cls=None,
               sampler_args=None,
               n_workers=psutil.cpu_count(logical=False),
               worker_class=None,
-              worker_args=None):
+              worker_args=None,
+              discount=0.99,
+              gae_lambda=1,
+              discrim_train_itrs=10,
+              discrim_batch_size=32,
+              irl_model_wt=1.0,
+              zero_environment_reward=False):
+        """
+        :param discount(float): Discount
+        :param irl_model_wt(float): weight of IRL model
+        """
         self._algo = algo
         self._env = env
         self._irl = irl
+        self._baseline = baseline
         self._n_workers = n_workers
         self._worker_class = worker_class
+
+        self.n_itr = n_itr
+        self.start_itr = start_itr
+
         if sampler_args is None:
             sampler_args = {}
         if sampler_cls is None:
@@ -146,6 +143,13 @@ class IRLTrainer(Trainer):
                                      sampler_args=sampler_args,
                                      seed=get_seed())
 
+        self.irl_model_wt = irl_model_wt
+        self.discount = discount
+        self.gae_lambda = gae_lambda
+        self.discrim_train_itrs = discrim_train_itrs
+        self.discrim_batch_size = discrim_batch_size
+        self.no_reward = zero_environment_reward
+
     def obtain_episodes(self,
                         itr,
                         batch_size=None,
@@ -155,16 +159,11 @@ class IRLTrainer(Trainer):
             raise ValueError('trainer was not initialized with `sampler_cls`. '
                              'Either provide `sampler_cls` to trainer.setup, '
                              ' or set `algo.sampler_cls`.')
-        if batch_size is None and self._train_args.batch_size is None:
-            raise ValueError(
-                'trainer was not initialized with `batch_size`. '
-                'Either provide `batch_size` to trainer.train, '
-                ' or pass `batch_size` to trainer.obtain_samples.')
         episodes = None
         if agent_update is None:
             agent_update = self._algo.policy.get_param_values()
         episodes = self._sampler.obtain_samples(
-            itr, (batch_size or self._train_args.batch_size),
+            itr, (batch_size or self.batch_size),
             agent_update=agent_update,
             env_update=env_update)
         self._stats.total_env_steps += sum(episodes.lengths)
@@ -202,48 +201,7 @@ class IRLTrainer(Trainer):
 
         logger.log('Saved')
 
-    def restore(self, from_dir, from_epoch='last'):
-        saved = self._snapshotter.load(from_dir, from_epoch)
-
-        self._setup_args = saved['setup_args']
-        self._train_args = saved['train_args']
-        self._stats = saved['stats']
-
-        set_seed(self._setup_args.seed)
-
-        self.setup(env=saved['env'],
-                   algo=saved['algo'],
-                   sampler_cls=self._setup_args.sampler_cls,
-                   sampler_args=self._setup_args.sampler_args,
-                   n_workers=saved['n_workers'],
-                   worker_class=saved['worker_class'],
-                   worker_args=saved['worker_args'])
-
-        n_epochs = self._train_args.n_epochs
-        last_epoch = self._stats.total_epoch
-        last_itr = self._stats.total_itr
-        total_env_steps = self._stats.total_env_steps
-        batch_size = self._train_args.batch_size
-        store_episodes = self._train_args.store_episodes
-        pause_for_plot = self._train_args.pause_for_plot
-
-        fmt = '{:<20} {:<15}'
-        logger.log('Restore from snapshot saved in %s' %
-                   self._snapshotter.snapshot_dir)
-        logger.log(fmt.format('-- Train Args --', '-- Value --'))
-        logger.log(fmt.format('n_epochs', n_epochs))
-        logger.log(fmt.format('last_epoch', last_epoch))
-        logger.log(fmt.format('batch_size', batch_size))
-        logger.log(fmt.format('store_episodes', store_episodes))
-        logger.log(fmt.format('pause_for_plot', pause_for_plot))
-        logger.log(fmt.format('-- Stats --', '-- Value --'))
-        logger.log(fmt.format('last_itr', last_itr))
-        logger.log(fmt.format('total_env_steps', total_env_steps))
-
-        self._train_args.start_epoch = last_epoch + 1
-        return copy.copy(self._train_args)
-
-    def _train_irl(self, samples, itr=0):
+    def _train_irl(self, paths, itr=0):
         if self.no_reward:
             total_rew = 0.
             for path in paths:
@@ -255,22 +213,13 @@ class IRLTrainer(Trainer):
         if self.irl_model_wt <= 0:
             return paths
 
-        if self.train_irl:
-            max_iters = self.discrim_train_iters
-            mean_loss = self.irl_model.train(
-                paths,
-                policy=self.policy,
-                itr=itr,
-                batch_size=self.discrim_batch_size,
-                max_itrs=max_iters,
-                logger=logger)
+        max_iters = self.discrim_train_itrs
+        mean_loss = self._irl.train(paths)
 
-            tabular.record('IRLLoss', mean_loss)
-            self.irl_params = self.irl_model.get_params()
+        tabular.record('IRLLoss', mean_loss)
+        self.irl_params = self._irl.get_params()
 
-        estimated_rewards = self.irl_model.eval(paths,
-                                                gamma=self.discount,
-                                                itr=itr)
+        estimated_rewards = self._irl.eval(paths, gamma=self.discount, itr=itr)
 
         tabular.record('IRLRewardMean',
                        np.mean(np.concatenate(estimated_rewards)))
@@ -281,7 +230,7 @@ class IRLTrainer(Trainer):
 
         # Replace the original reward signal with learned reward signal
         # This will be used by agents to learn policy
-        if self.irl_model.score_trajectories:
+        if self._irl.score_trajectories:
             for i, path in enumerate(paths):
                 path['rewards'][-1] += self.irl_model_wt * estimated_rewards[i]
         else:
@@ -311,17 +260,12 @@ class IRLTrainer(Trainer):
             float: The average return in last epoch cycle.
 
         """
+        self.batch_size = batch_size
+        self.store_episodes = store_episodes
+        self.pause_for_plot = pause_for_plot
         if not self._has_setup:
             raise NotSetupError(
                 'Use setup() to setup trainer before training.')
-
-        # Save arguments for restore for algo
-        self._train_args = TrainArgs(n_epochs=n_epochs,
-                                     batch_size=batch_size,
-                                     plot=plot,
-                                     store_episodes=store_episodes,
-                                     pause_for_plot=pause_for_plot,
-                                     start_epoch=0)
 
         self._plot = plot
 
@@ -329,25 +273,25 @@ class IRLTrainer(Trainer):
         for itr in range(self.start_itr, self.n_itr):
             with logger.prefix(f'itr #{itr} | '):
                 logger.log('Obtaining paths...')
-                paths = self.obtain_paths(itr)
+                paths = self.obtain_samples(itr)
                 logger.log('Processing paths...')
 
                 # compute irl and update reward function
-                paths = self.compute_irl(paths, itr=itr)
-                samples_data = self.process_paths(itr, paths)
+                paths = self._train_irl(paths, itr=itr)
+                samples_data = self.process_samples(itr, paths)
 
+                # train policy
+                self._algo.train(self)
                 logger.log('Logging diagnostics...')
                 self.log_diagnostics(paths)
                 logger.log('Optimizing policy...')
 
-                # train policy
-                self._algo.train(self)
                 logger.log('Saving snapshot...')
                 self.save(itr)
                 logger.log('Saved')
-                tabular.record('Time', time.time() - start_time)
-                tabular.record('ItrTime', time.time() - itr_start_time)
-                logger.dump_tabular(with_prefix=False)
+                tabular.record('Time', time.time() - self._start_time)
+                tabular.record('ItrTime', time.time() - self._itr_start_time)
+                logger.log(tabular)
 
         self._shutdown_worker()
 
@@ -359,30 +303,24 @@ class IRLTrainer(Trainer):
         self.step_itr = self._stats.total_itr
         self.step_episode = None
 
-        # Used by integration tests to ensure examples can run one epoch.
-        n_epochs = int(
-            os.environ.get('GARAGE_EXAMPLE_TEST_N_EPOCHS',
-                           self._train_args.n_epochs))
-
         logger.log('Obtaining samples...')
 
-        for epoch in range(self._train_args.start_epoch, n_epochs):
-            self._itr_start_time = time.time()
-            with logger.prefix('epoch #%d | ' % epoch):
-                yield epoch
-                save_episode = (self.step_episode
-                                if self._train_args.store_episodes else None)
+        # for epoch in range(self._train_args.start_epoch, n_epochs):
+        self._itr_start_time = time.time()
+        # with logger.prefix('epoch #%d | ' % epoch):
+        yield 1
+        save_episode = (self.step_episode if self.store_episodes else None)
 
-                self._stats.last_episode = save_episode
-                self._stats.total_epoch = epoch
-                self._stats.total_itr = self.step_itr
+        self._stats.last_episode = save_episode
+        self._stats.total_epoch = 1
+        self._stats.total_itr = self.step_itr
 
-                self.save(epoch)
+        self.save(1)
 
-                if self.enable_logging:
-                    self.log_diagnostics(self._train_args.pause_for_plot)
-                    logger.dump_all(self.step_itr)
-                    tabular.clear()
+        if self.enable_logging:
+            self.log_diagnostics(self.pause_for_plot)
+            logger.dump_all(self.step_itr)
+            tabular.clear()
 
     def get_env_copy(self):
         """Get a copy of the environment.
@@ -399,36 +337,46 @@ class IRLTrainer(Trainer):
     def process_samples(self, itr, paths):
         baselines, returns = [], []
 
-        if not self.algo.policy.recurrent:
-            observations = tensor_utils.concat_tensor_list(
-                [path["observations"] for path in paths])
-            actions = tensor_utils.concat_tensor_list(
-                [path["actions"] for path in paths])
-            rewards = tensor_utils.concat_tensor_list(
-                [path["rewards"] for path in paths])
-            returns = tensor_utils.concat_tensor_list(
-                [path["returns"] for path in paths])
-            advantages = tensor_utils.concat_tensor_list(
-                [path["advantages"] for path in paths])
-            env_infos = tensor_utils.concat_tensor_dict_list(
-                [path["env_infos"] for path in paths])
-            agent_infos = tensor_utils.concat_tensor_dict_list(
-                [path["agent_infos"] for path in paths])
+        all_path_baselines = [self._baseline.predict(path) for path in paths]
 
-            return dict(
-                observations=obs,
-                actions=actions,
-                advantages=adv,
-                rewards=rewards,
-                returns=returns,
-                valids=valids,
-                agent_infos=agent_infos,
-                env_infos=env_infos,
-                paths=paths,
-            )
-        else:
-            print("MUST IMPLEMENT")
-            exit()
+        for idx, path in enumerate(paths):
+            path_baselines = np.append(all_path_baselines[idx], 0)
+            deltas = path['rewards'] + self._algo.discount * path_baselines[
+                1:] - path_baselines[:-1]
+            path['advantages'] = special.discount_cumsum(
+                deltas, self._algo.discount * self.gae_lambda)
+            path['returns'] = special.discount_cumsum(path['rewards'],
+                                                      self._algo.discount)
+            baselines.append(path_baselines[:-1])
+            returns.append(path['returns'])
+
+        observations = tensor_utils.concat_tensor_list(
+            [path["observations"] for path in paths])
+        actions = tensor_utils.concat_tensor_list(
+            [path["actions"] for path in paths])
+        rewards = tensor_utils.concat_tensor_list(
+            [path["rewards"] for path in paths])
+        returns = tensor_utils.concat_tensor_list(
+            [path["returns"] for path in paths])
+        advantages = tensor_utils.concat_tensor_list(
+            [path["advantages"] for path in paths])
+        env_infos = tensor_utils.concat_tensor_dict_list(
+            [path["env_infos"] for path in paths])
+        agent_infos = tensor_utils.concat_tensor_dict_list(
+            [path["agent_infos"] for path in paths])
+
+        advantages = center_advantages(advantages)
+
+        return dict(
+            observations=observations,
+            actions=actions,
+            advantages=advantages,
+            rewards=rewards,
+            returns=returns,
+            agent_infos=agent_infos,
+            env_infos=env_infos,
+            paths=paths,
+        )
 
     @property
     def total_env_steps(self):

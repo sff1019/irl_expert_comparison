@@ -329,8 +329,12 @@ class Trainer:
         params = dict()
 
         for idx, path in enumerate(paths):
+            if hasattr(self._algo, 'discount'):
+                discount = self._algo.discount
+            elif hasattr(self._algo, '_discount'):
+                discount = self._algo._discount
             path['returns'] = special.discount_cumsum(path['rewards'],
-                                                      self._algo.discount)
+                                                      discount)
         params['returns'] = tensor_utils.concat_tensor_list(
             [path['returns'] for path in paths])
 

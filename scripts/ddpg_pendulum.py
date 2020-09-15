@@ -9,7 +9,8 @@ from garage.replay_buffer import PathBuffer
 from garage.torch.algos import DDPG
 from garage.torch.policies import DeterministicMLPPolicy
 from garage.torch.q_functions import ContinuousMLPQFunction
-from garage.trainer import Trainer
+
+from torchrl.experiments import Trainer
 
 
 @wrap_experiment(log_dir='data/ddpg_pendulum_v0', snapshot_mode='all')

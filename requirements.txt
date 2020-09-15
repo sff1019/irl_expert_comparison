@@ -48,7 +48,7 @@ numpy==1.19.2
 oauthlib==3.1.0
 opt-einsum==3.3.0
 Pillow==7.2.0
-protobuf==4.0.0rc2
+protobuf==3.13.0
 psutil==5.7.2
 pyasn1==0.4.8
 pyasn1-modules==0.2.8
@@ -81,7 +81,7 @@ termcolor==1.1.0
 tf-estimator-nightly==1.14.0.dev2019060501
 tifffile==2020.9.3
 torch==1.6.0
--e git+git@github.com:sff1019/irl_expert_comparison.git@629346c57e6b491268a1b73ad30c56cd445368e1#egg=torchrl
+-e git+git@github.com:sff1019/irl_expert_comparison.git@1983140d8cfd30fc7cf96f08801940bd28af4108#egg=torchrl
 torchvision==0.7.0
 urllib3==1.25.10
 Werkzeug==1.0.1

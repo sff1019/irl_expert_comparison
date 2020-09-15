@@ -177,7 +177,7 @@ class IRLTrainer(Trainer):
         eps = self.obtain_episodes(itr, batch_size, agent_update, env_update)
         return eps.to_list()
 
-    def save(self, epoch):
+    def save(self, epoch, paths=None):
         if not self._has_setup:
             raise NotSetupError('Use setup() to setup trainer before saving.')
 
@@ -196,6 +196,7 @@ class IRLTrainer(Trainer):
         params['n_workers'] = self._n_workers
         params['worker_class'] = self._worker_class
         params['worker_args'] = self._worker_args
+        params['paths'] = paths
 
         self._snapshotter.save_itr_params(epoch, params)
 
@@ -272,16 +273,17 @@ class IRLTrainer(Trainer):
         returns = []
         for itr in range(self.start_itr, self.n_itr):
             with logger.prefix(f'itr #{itr} | '):
-                logger.log('Obtaining paths...')
-                paths = self.obtain_samples(itr)
-                logger.log('Processing paths...')
-
-                # compute irl and update reward function
-                paths = self._train_irl(paths, itr=itr)
-                samples_data = self.process_samples(itr, paths)
 
                 # train policy
                 self._algo.train(self)
+
+                # compute irl and update reward function
+                logger.log('Obtaining paths...')
+                paths = self.obtain_samples(itr)
+                logger.log('Processing paths...')
+                paths = self._train_irl(paths, itr=itr)
+                samples_data = self.process_samples(itr, paths)
+
                 logger.log('Logging diagnostics...')
                 logger.log('Time %.2f s' % (time.time() - self._start_time))
                 logger.log('EpochTime %.2f s' %
@@ -291,7 +293,7 @@ class IRLTrainer(Trainer):
                 logger.log('Optimizing policy...')
 
                 logger.log('Saving snapshot...')
-                self.save(itr)
+                self.save(itr, paths=paths)
                 logger.log('Saved')
                 tabular.record('Time', time.time() - self._start_time)
                 tabular.record('ItrTime', time.time() - self._itr_start_time)
@@ -309,23 +311,15 @@ class IRLTrainer(Trainer):
         self.step_episode = None
 
         logger.log('Obtaining samples...')
+        yield (1)
 
         # for epoch in range(self._train_args.start_epoch, n_epochs):
         self._itr_start_time = time.time()
-        # with logger.prefix('epoch #%d | ' % epoch):
-        yield 1
         save_episode = (self.step_episode if self.store_episodes else None)
 
         self._stats.last_episode = save_episode
         self._stats.total_epoch = 1
         self._stats.total_itr = self.step_itr
-
-        self.save(1)
-
-        # if self.enable_logging:
-        #     self.log_diagnostics(self.pause_for_plot)
-        #     logger.dump_all(self.step_itr)
-        #     tabular.clear()
 
     def get_env_copy(self):
         """Get a copy of the environment.

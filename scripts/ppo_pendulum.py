@@ -11,7 +11,8 @@ from garage.experiment.deterministic import set_seed
 from garage.torch.algos import PPO
 from garage.torch.policies import GaussianMLPPolicy
 from garage.torch.value_functions import GaussianMLPValueFunction
-from garage.trainer import Trainer
+
+from torchrl.experiments import Trainer
 
 
 @wrap_experiment(log_dir='data/ppo_pendulum_v0', snapshot_mode='all')
@@ -26,7 +27,7 @@ def ppo_pendulum(ctxt=None, seed=1):
 
     """
     set_seed(seed)
-    env = GymEnv('InvertedDoublePendulum-v2')
+    env = GymEnv('Pendulum-v0')
 
     trainer = Trainer(ctxt)
 

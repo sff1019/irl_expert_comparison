@@ -139,6 +139,7 @@ class GAIL(object):
         exp_states, exp_acts = self.expert_trajs
 
         total_loss = 0.
+        # train discriminator
         for itr in range(max_itrs):
             agt_states_batch, agt_act_batch = self.sample_batch(
                 agt_states, agt_acts)
@@ -153,10 +154,12 @@ class GAIL(object):
             act_batch = np.concatenate([agt_act_batch, exp_act_batch])
 
             # convert to torch.tensor
-            states_batch = torch.from_numpy(states_batch).type(
+            states_batch = Variable(torch.from_numpy(states_batch)).type(
                 torch.FloatTensor)
-            act_batch = torch.from_numpy(act_batch).type(torch.FloatTensor)
-            labels = torch.from_numpy(labels).type(torch.FloatTensor)
+
+            act_batch = Variable(torch.from_numpy(act_batch)).type(
+                torch.FloatTensor)
+            labels = Variable(torch.from_numpy(labels)).type(torch.FloatTensor)
 
             inputs = torch.cat((states_batch, act_batch), axis=1)
 
@@ -164,6 +167,7 @@ class GAIL(object):
             out = self.disc(inputs)
             loss = self.loss_fn(out, labels)
             loss.backward()
+            self.optim.step()
 
             total_loss += loss
 

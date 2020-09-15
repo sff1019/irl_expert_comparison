@@ -14,7 +14,8 @@ from garage.torch import set_gpu_mode
 from garage.torch.algos import SAC
 from garage.torch.policies import TanhGaussianMLPPolicy
 from garage.torch.q_functions import ContinuousMLPQFunction
-from garage.trainer import Trainer
+
+from torchrl.experiments import Trainer
 
 
 @wrap_experiment(log_dir='data/sac_pendulum_v0', snapshot_mode='all')

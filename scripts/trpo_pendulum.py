@@ -11,8 +11,14 @@ import torch
 from torchrl.algos.trpo import TRPO
 from torchrl.experiments.trainer import Trainer
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--epochs', type=int, default=200)
+parser.add_argument('--batch_size', type=int, default=1024)
+parser.add_argument('--log_dir', type=str, default='data/trpo_pendulum')
+args = parser.parse_args()
 
-@wrap_experiment(log_dir='data/trpo_pendulum_v0', snapshot_mode='all')
+
+@wrap_experiment(log_dir=args.log_dir, snapshot_mode='all')
 def main(ctxt=None, seed=0):
     env = GymEnv('Pendulum-v0')
 
@@ -38,8 +44,4 @@ def main(ctxt=None, seed=0):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=1024)
-    args = parser.parse_args()
     main()
